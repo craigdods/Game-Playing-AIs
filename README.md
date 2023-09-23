@@ -3,6 +3,10 @@ Final Project Submission
 
 ### Setup
 
+#### Step 0: Download final weights (852MB~) from Microsoft OneDrive:
+https://1drv.ms/u/s!AsrTlFYt7nX2irc0MZuj1yErOFs2sw?e=X6Lsqc
+> Place them in the top-level directory of this repository
+
 #### Step 1: Install CUDA 11.8 that matches this build (OS Package, not Python/pip):
 ```bash
 nvcc --version
