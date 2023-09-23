@@ -110,7 +110,7 @@ ACTION_ATTACK = 'attack'
 #
 _TRAIN_SCV = actions.FUNCTIONS.Train_SCV_quick.id
 # Specify Previous Network-Compatable Weights:
-_INITIAL_WEIGHTS = 'ddqn-cnn-lstm-agent-model-22-d.pt_episode_1700_reward_1.71.pt'
+_INITIAL_WEIGHTS = 'abel_final_weights.pt'
 # Specify Naming Scheme of Future Model Checkpoints
 # _DATA_FILE = 'ddqn-cnn-lstm-agent-model-22-d.pt'
 _ATTACK_SCREEN = actions.FUNCTIONS.Attack_screen.id
