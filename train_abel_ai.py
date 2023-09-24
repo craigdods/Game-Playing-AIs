@@ -3,13 +3,14 @@ Abel AI - A Double DQN with Dual Input, Temporal LSTM Processing, Heuristic-Guid
 
 This is my reinforcement-learning agent, inspired by the 2017 efforts of Steven Brown (PySC2 Dev) who used Q-Learning in his blog series: https://github.com/skjb/pysc2-tutorial/tree/master
 The PySC2 test harness that he built for his agents is leveraged here (somewhat...) so that the DQN can properly interact with the StarCraft II / PySC2 environment.
-Out of the 1800~ Lines-of-Code, approximately 1500~ are net-new code written by me, with the 300~ lines involving boilerplate code responsible for basic SC2/PySC2 multi-step functions like creating buildings/units
+Out of the 2000~ Lines-of-Code, approximately 1700~ are net-new code written by me, with the 300~ lines involving boilerplate code responsible for basic SC2/PySC2 multi-step functions like creating buildings/units
 
 To modify training behaviour (Self-Reinforcement, Built-in Bots, or Kane, modify the TRAINING_TYPE Global knob on line 61)
 
 To debug (outside of the PySC2 Run Loop Environment) to see Python Tracebacks, use this string:
 python -m pysc2.bin.agent --map Simple64 --agent train_abel_ai.DQNAgent --agent_race terran --max_agent_steps 0 --norender --use_feature_units --difficulty very_easy --agent2_race terran --nosave_replay --action_space RGB --rgb_minimap_size 64 --rgb_screen_size 84 --game_steps_per_episode 21000
----- add to readme:
+
+---- File Descriptor Requirements (also present in README):
 file-descriptor limits need to be artificially raised in /etc/security/limits.conf:
 craig		soft	nofile		8192
 craig 	hard	nofile		1048576
@@ -114,7 +115,7 @@ _TRAIN_SCV = actions.FUNCTIONS.Train_SCV_quick.id
 # Specify Previous Network-Compatable Weights:
 _INITIAL_WEIGHTS = 'abel_final_weights.pt'
 # Specify Naming Scheme of Future Model Checkpoints
-_DATA_FILE = 'ddqn-cnn-lstm-agent-model-v22-a.pt'
+_DATA_FILE = 'ddqn-cnn-lstm-agent-model-22-d.pt'
 _ATTACK_SCREEN = actions.FUNCTIONS.Attack_screen.id
 
 ACTION_BUILD_SCV = 'buildscv'
@@ -210,7 +211,6 @@ quadrants = [
 # Calculate the offset points for each quadrant
 # This is used in the smart_attack functions (16 locations with offsets)
 # Inspiration was Steven Brown's logic, however this is...highly modified (16 locations in mini-quadrants vs 4, complex offsets, etc)
-
 
 def calculate_quadrant_points(top_left_x, top_left_y, quadrant):
     corner_offset = 3
@@ -316,7 +316,7 @@ print("--------------------")
 # Custom Dual DQN Agent implementation with a replay buffer of 2M, gamma of 0.90 (hopefully prioritizing longer term play), and batch_size of 512 (confirmed optimal via hyperparameter search)
 # Technically I believe this architecture could be called a "Double DQN with Dual Input, Temporal LSTM Processing, Heuristic-Guided Mixed Precision, CNN for Spatial Data, and Efficient Dual-Storage Replay Buffer."
 # To solve the replay buffer's O(n) random lookup issue in Python's `deque`, I have created two separate buffers:
-# 1. The 1.5M size deque where state/actions are appended/popped directly in O(1) time per game step
+# 1. The 2M size deque where state/actions are appended/popped directly in O(1) time per game step
 # 2. A python list with O(1) time for random lookups. This is copied once from the deque every 10 games/episodes in O(N) time, resulting in large performance improvements
 # Particularly as training occurs multiple times per game (every 100 actions), and fetching 1k items in O(n) time dramatically slowed down gameplay
 # The drawback of course is that space complexity is 2N...
@@ -537,10 +537,6 @@ class DQNModel(nn.Module):
         print("Replay buffer currently has: ",
               len(self.training_buffer), "entries")
 
-    # # Sample random transitions from replay buffer
-    # def random_sample(self, batch_size):
-        # return random_sample(self.training_buffer, batch_size)
-
     def random_sample(self, batch_size):
         """
         This function implements a biased random sampling strategy.
@@ -578,7 +574,7 @@ class DQNModel(nn.Module):
     # The basic framework of the function `choose_action`` was leveraged from the initial Q-Learning
     # Implementation that Steven Brown (PySC2 Dev) created here:
     # https://github.com/skjb/pysc2-tutorial/blob/master/Refining%20the%20Sparse%20Reward%20Agent/refined_agent.py
-    # I've of course modified it to use linear decay, a DQN with minimap-CNN (via torch) instead of Q-Learning with basic hot-squares, etc but...the initial work is his
+    # I've of course heavily modified it as mentioned above, but...the initial work is his
     def choose_action(self, current_state, excluded_actions=[]):
         # Extract non_spatial_data and rgb_minimap from current_state
         non_spatial_data = current_state["non_spatial"]
@@ -642,7 +638,8 @@ class DQNModel(nn.Module):
         return action
 
     # This is where we train the model
-    # It samples randomly from the replay buffer - relatively simplistic compared to PER but seemingly effective!
+    # It samples stochastically from the replay buffer with a slight bias (30% comes from most recent 20%)
+    # Not as effective as PER, but "good enough"!
     def learn(self, target_network):
         # Check if the replay buffer has enough samples (using 500K as minimum)
         if len(self.training_buffer) < self.training_buffer_requirement:
@@ -831,7 +828,6 @@ class DQNModel(nn.Module):
         return [unit for unit in obs.observation.feature_units if unit.unit_type == unit_type]
 
     # Provide the x/y coordinates of our command center(s)
-
     def get_command_center_coordinates(self, obs):
         # Get Command Centers using the get_units_by_type function
         command_centers = self.get_units_by_type(
@@ -939,8 +935,7 @@ class DQNModel(nn.Module):
         return fixed_length_units
 
 # Agent Implementation
-
-
+#
 class DQNAgent(base_agent.BaseAgent):
 
     def __init__(self):
@@ -1003,12 +998,13 @@ class DQNAgent(base_agent.BaseAgent):
         self.command_center = []
 
         # Action mapping
-        # Define which actions correspond to which quadrants
+        # Define which actions correspond to which map quadrants
         self.top_left_actions = [10, 11, 12, 13]
         self.top_right_actions = [14, 15, 16, 17]
         self.bottom_left_actions = [18, 19, 20, 21]
         self.bottom_right_actions = [22, 23, 24, 25]
 
+        # Load in our initial weights
         if os.path.isfile(_INITIAL_WEIGHTS):
             print("Loading previous model: ", _INITIAL_WEIGHTS)
             self.dqn_model.load_model(_INITIAL_WEIGHTS)
@@ -1019,7 +1015,6 @@ class DQNAgent(base_agent.BaseAgent):
         self.target_network = self.target_network.to(self.dqn_model.device)
 
     # We identify the current per-step reward based on in-game score and normalize it
-
     def get_normalized_reward(self, obs, previous_action, non_spatial_metrics, last_five_actions):
         # Extract the cumulative score from the observation
         score = obs.observation.score_cumulative.score
@@ -1168,8 +1163,7 @@ class DQNAgent(base_agent.BaseAgent):
         # Return the final total_reward
         return total_reward
 
-    # BOILER PLATE CODE AGAIN
-
+    ## BOILER PLATE CODE From Stephen Brown
     def transformLocation(self, x, y):
         # Debug
         # print("Before transforming, x and y are set to: ", x , y)
@@ -1191,8 +1185,7 @@ class DQNAgent(base_agent.BaseAgent):
 
         return [x, y]
 
-    # Return of boiler plate
-
+    ## BOILER PLATE CODE From Stephen Brown
     def splitAction(self, action_id):
         smart_action = smart_actions[action_id]
 
@@ -1203,7 +1196,7 @@ class DQNAgent(base_agent.BaseAgent):
 
         return (smart_action, x, y)
 
-    # CUSTOM
+    # END OF BOILER PLATE
 
     # This function checks to see if we can add more marines to our build queue
     # Used to improve our reward system for the agent
@@ -1222,6 +1215,8 @@ class DQNAgent(base_agent.BaseAgent):
     def normalize(self, value, min_value, max_value):
         return (value - min_value) / (max_value - min_value)
 
+    # This is where the bulk of the "in game" logic resides"
+    # For each game step, PySC2 executes this code
     def step(self, obs):
         super(DQNAgent, self).step(obs)
         # Using delay timers to avoid duplicate commands being issued by the AI
@@ -1274,12 +1269,12 @@ class DQNAgent(base_agent.BaseAgent):
                 print("Saving our model weights (Checkpoint)...")
                 self.dqn_model.save_model(
                     _DATA_FILE, self.episode_count, avg_reward)
-
             print("Previous average reward was: ",
                   self.previous_avg_reward)
             print("Our rolling-average reward is: ", avg_reward)
             print("Latest game reward was: ", combined_reward)
             print("Number of steps were: ", episode_steps)
+
             # Backpropagate the final reward multiplier to previous actions
             print(
                 f"Backpropagating a {final_reward_multiplier}x reward multiplier across {self.actual_root_level_steps_taken} root level actions...")
@@ -1290,14 +1285,13 @@ class DQNAgent(base_agent.BaseAgent):
             if self.episode_count % 10 == 0:
                 self.dqn_model.transfer_buffer()
 
-            # Print statements if our buffer is large enough to train on...
+            # If our replay buffer is large enough to begin training
             if len(self.dqn_model.training_buffer) > self.dqn_model.training_buffer_requirement:
+                # Display how many in-game training runs there were
                 print("Number of in-game model updates: ",
-                      self.in_game_training_iterations)
+                self.in_game_training_iterations)
                 print("Training the model after game completion...")
-
-            # Is our buffer large enough to begin training...
-            if len(self.dqn_model.training_buffer) > self.dqn_model.training_buffer_requirement:
+                # Train one more time and record/print/export the time it takes
                 training_start_time = time.time()
                 self.dqn_model.learn(self.target_network)
                 training_end_time = time.time() - training_start_time
@@ -1340,8 +1334,8 @@ class DQNAgent(base_agent.BaseAgent):
                     except Exception as e:
                         print(f"Error logging Reward Histogram: {e}")
 
-            # Reset remaining, episode-specific counters
             print("------------------------------------------------------")
+            # Reset remaining, episode-specific counters
             self.previous_avg_reward = avg_reward
             self.previous_action = None
             self.previous_state = None
@@ -1361,7 +1355,8 @@ class DQNAgent(base_agent.BaseAgent):
             # Resetting List of each reward, displayed as a histogram (sampled every 25 games infrequently)
             self.episode_rewards = []
 
-            # There is a predictable SC2 Segfault after every 986th game currently, this code is a workaround
+            # There is a predictable SC2 Segfault after every 986th game currently (memory leak induced), this code is a workaround
+            # Only occurs when multi-agent play is occurring, does not occur against built-in Bots
             if (self.episode_count % _MAX_GAMES_BEFORE_RESTART == 0) and (_TRAINING_TYPE != "bot"):
                 print(
                     "----Restarting underlying SC2 Environment for Crash Avoidance!!----")
@@ -1372,19 +1367,10 @@ class DQNAgent(base_agent.BaseAgent):
 
             return actions.FunctionCall(_NO_OP, [])
 
-        # BOILER PLATE Action-Space Guardrails
-        # Used as a way of limiting the potential action space at the beginning of the game for the agent
-
         unit_type = obs.observation["feature_screen"][_UNIT_TYPE]
 
+        # If this is the first step in our game
         if obs.first():
-
-            # Original logic, doesn't work properly...
-            # player_y, player_x = (
-            #     obs.observation["feature_screen"][_PLAYER_RELATIVE] == _PLAYER_SELF).nonzero()
-            # self.base_top_left = 1 if player_y.any() and player_y.mean() <= 31 else 0
-
-            # # print("Player x and y are set to: ", self.player_x, self.player_y)
 
             self.cc_y, self.cc_x = (
                 unit_type == _TERRAN_COMMANDCENTER).nonzero()
@@ -1438,7 +1424,7 @@ class DQNAgent(base_agent.BaseAgent):
         # if self.command_center:
         #     print("Command centers are set to:", self.command_center)
 
-        # Minerals
+        # Non-Spatial Information
         self.minerals = obs.observation['player'][1]
         supply_used = obs.observation['player'][3]
         supply_limit = obs.observation['player'][4]
@@ -1446,8 +1432,6 @@ class DQNAgent(base_agent.BaseAgent):
         worker_supply = obs.observation['player'][6]
         idle_worker_count = obs.observation['player'][7]
         army_count = obs.observation['player'][8]
-
-        # unit for unit in obs.observation.feature_units if unit.alliance == features.PlayerRelative.ENEMY]
 
         enemy_units = [
             unit for unit in obs.observation.feature_units if unit.alliance == features.PlayerRelative.ENEMY]
@@ -1465,13 +1449,14 @@ class DQNAgent(base_agent.BaseAgent):
         supply_depot_recently_built = False
         # print("Game step is: ", self.actual_root_level_steps_taken)
 
+        # Check to see if we've recently built a supply depot
+        # This is passed via non_spatial_metrics
         if self.last_supply_depot_built_step is not None:
             if (self.actual_root_level_steps_taken - self.last_supply_depot_built_step) <= 60:
                 # print("supply_depot_recently_built = True" )
                 supply_depot_recently_built = True
-            # else:
-                # print("supply_depot_recently_built = False" )
 
+        # Non-Spatial-Metrics are passed to the model at each game step along with `visible_units`
         non_spatial_metrics = {
             'minerals': self.minerals,
             'supply_limit': supply_limit,
@@ -1490,13 +1475,14 @@ class DQNAgent(base_agent.BaseAgent):
             'camera_location': self.last_camera_action,
             'game_step_progress': self.normalize(self.actual_root_level_steps_taken, 1, 1500),
             'game_score': self.normalize(obs.observation.score_cumulative.score, 1, 12000),
-            # Prevents NaN from being sent to the model, breaking things
             'previous_action': self.previous_action or 0
         }
 
         # print("Non-spatial metrics are set to: ", non_spatial_metrics)
         # print("Non-spatial barracks count is: ", non_spatial_metrics["barracks_count"])
 
+        # This is where we combine our spatial and non-spatial data which is transformed
+        # before passing to the model
         current_state = {
             "non_spatial": np.zeros(300),
             "rgb_minimap": None
@@ -1561,6 +1547,8 @@ class DQNAgent(base_agent.BaseAgent):
         if not hasattr(self, 'intended_action'):
             self.intended_action = None
 
+        # excluded_actions and a lot of the code within it can be found in Stephen Brown's work noted earlier
+        # It's mostly been refactored, but the structure and approach is very similar with some extra logic and guardrails (e.g intent)
         if self.move_number == 0:
             self.move_number += 1
 
@@ -1613,7 +1601,6 @@ class DQNAgent(base_agent.BaseAgent):
                 # print("Marine Build Excluded. Supply is set to: ", supply_free," and barracks_count is: ", barracks_count)
                 excluded_actions.append(3)
 
-            # CUSTOM
             # If we don't see an enemy or if we've issued an attack order 2 steps ago, skip...
             # print("Before our conditional check on attacking, enemy unit length is: ", len(enemy_units), "our timer is: ", self.unit_attack_delay_timer, " and our supply is: ", army_supply)
             # print("This evalutes to: ", (len(enemy_units) == 0) or (self.unit_attack_delay_timer < 2) or (army_supply < 8))
@@ -1663,6 +1650,7 @@ class DQNAgent(base_agent.BaseAgent):
                     excluded_actions.append(action_to_exclude)
 
             # If our Guardrails are disabled, allow any action to be chosen
+            # This code controls full-action-space training
             if _TRAINING_GUARDRAILS_ENABLED == False:
                 excluded_actions.clear()
 
@@ -1806,10 +1794,6 @@ class DQNAgent(base_agent.BaseAgent):
 
             smart_action, x, y = self.splitAction(self.previous_action)
 
-            # end of boiler plate
-
-            # Custom code / initial design similar to boiler plate
-
             # Used to ensure buildings are placed on the border, resulting in trapped units
             BORDER_PADDING = 6
 
@@ -1832,8 +1816,6 @@ class DQNAgent(base_agent.BaseAgent):
                         target[0], 83 - BORDER_PADDING))
                     target[1] = max(BORDER_PADDING, min(
                         target[1], 83 - BORDER_PADDING))
-
-                    # Start our timer for reward shaping
 
                     # print("Trying to build a supply depot at:", target)
                     return actions.FunctionCall(_BUILD_SUPPLY_DEPOT, [_NOT_QUEUED, target])
@@ -1952,6 +1934,9 @@ class DQNAgent(base_agent.BaseAgent):
 
         return actions.FunctionCall(_NO_OP, [])
 
+# main() is responsible for setting up the PySC2 run_loop() with all required environment variables
+# Works perfectly for Kane and Abel self-training, but there are occassionally errors with _TRAINING_TYPE == Bot
+# It's generally less frustrating to execute the script via the debug methodology (`python -m pysc2.bin.agent ...`)
 def main(args):
     agent1 = DQNAgent()
     agent1_name = "Abel_AI"
