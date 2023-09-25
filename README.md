@@ -1,6 +1,10 @@
 # Game-Playing-AIs
 Final Project Submission
 
+### Demo Video
+Coursera's Audio is desynchronized for some reason. Please view the demo on Youtube:
+https://youtu.be/AgXGdVHBeL8
+
 ### Setup
 
 #### Step 0: Download final weights (852MB~) from Microsoft OneDrive:
